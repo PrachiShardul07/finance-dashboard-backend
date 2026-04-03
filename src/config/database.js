@@ -1,8 +1,11 @@
 const Database = require("better-sqlite3");
 const path = require("path");
+const os = require("os");
 require("dotenv").config();
 
-const DB_PATH = path.resolve(process.env.DB_PATH || "./finance.db");
+const DB_PATH = path.resolve(
+  process.env.DB_PATH || path.join(os.tmpdir(), "finance.db")
+);
 
 let db;
 
