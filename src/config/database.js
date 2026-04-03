@@ -1,11 +1,17 @@
 const Database = require("better-sqlite3");
-const path = require("path");
-const os = require("os");
+const path     = require("path");
+const fs       = require("fs");
 require("dotenv").config();
 
-const DB_PATH = path.resolve(
-  process.env.DB_PATH || path.join(os.tmpdir(), "finance.db")
-);
+// Always store the DB in a 'data' folder inside the project root.
+// This path works both locally and on Railway.
+const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(__dirname, "../../data"));
+const DB_PATH  = path.join(DATA_DIR, "finance.db");
+
+// Create the data directory if it doesn't exist yet
+if (!fs.existsSync(DATA_DIR)) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+}
 
 let db;
 
