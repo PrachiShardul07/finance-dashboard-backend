@@ -1,229 +1,235 @@
-git# Finance Dashboard Backend
+# Finance Dashboard Backend
 
-A backend API built for managing financial records with role-based access. Different users get different levels of access depending on their role — admins can do everything, analysts can manage records, and viewers can only look at data.
+A backend REST API for a role-based finance dashboard. Admins manage everything, analysts handle records, viewers just read. Built with Node.js, Express, and SQLite.
 
-Built with Node.js, Express, and SQLite. JWT handles authentication.
+---
+
+## Live Deployment
+
+| | |
+|---|---|
+| **GitHub** | https://github.com/PrachiShardul07/finance-dashboard-backend |
+| **Live API** | https://finance-dashboard-backend-production-3a2f.up.railway.app |
+| **Health Check** | https://finance-dashboard-backend-production-3a2f.up.railway.app/health |
+
+Deployed on Railway. Auto-seeds demo data on first boot, no manual setup needed.
+
+### Try it right now
+
+Health check — open in browser:
+```
+https://finance-dashboard-backend-production-3a2f.up.railway.app/health
+```
+
+Login:
+```
+POST https://finance-dashboard-backend-production-3a2f.up.railway.app/api/auth/login
+
+{
+  "email": "admin@demo.com",
+  "password": "admin123"
+}
+```
+
+Dashboard summary (use token from login):
+```
+GET https://finance-dashboard-backend-production-3a2f.up.railway.app/api/dashboard/summary
+Authorization: Bearer your-token-here
+```
+
+### Demo accounts
+
+```
+admin@demo.com    /  admin123    (full access)
+analyst@demo.com  /  analyst123  (create and edit transactions)
+viewer@demo.com   /  viewer123   (read only)
+```
 
 ---
 
 ## Why these tools
 
-I went with Node and Express because I'm comfortable with them and Express doesn't force you into any specific pattern — you structure things the way that makes sense for the project. SQLite was an easy call here, no server setup, no config headaches, just a file on disk. It works perfectly for this kind of project. If this needed to scale up I'd move to Postgres but for now SQLite does the job cleanly.
+Node and Express because I know them well and Express doesn't impose structure — you design it the way that fits the problem. SQLite because there's no server to configure, it's just a file, and it's more than capable here. If this needed to go to production I'd move to Postgres, but that's only a change in `database.js`, nothing else would need to touch.
 
-JWT made sense for auth because it's stateless — the server doesn't need to track sessions anywhere. Passwords go through bcrypt before touching the database, so even if the DB gets compromised the actual passwords are safe.
+JWT for auth because it's stateless — no session store needed. Passwords through bcrypt, so the hash in the database is useless without the original. Rate limiting on login and register to slow down brute-force attempts.
 
 ---
 
-## Project layout
+## Project structure
 
 ```
 finance-dashboard/
 ├── src/
-│   ├── app.js                        entry point, sets up express + routes
+│   ├── app.js                       server setup, middleware, routes
 │   ├── config/
-│   │   ├── database.js               opens sqlite, creates tables on first run
-│   │   └── seed.js                   loads demo users + transactions
-│   ├── middleware/
-│   │   ├── auth.js                   checks JWT on every protected route
-│   │   └── roleCheck.js              blocks request if role isn't allowed
-│   ├── controllers/
+│   │   ├── database.js              sqlite connection, auto-creates schema
+│   │   └── seed.js                  demo users and sample transactions
+│   ├── services/                    all database logic lives here
+│   │   ├── transactionService.js
+│   │   ├── userService.js
+│   │   └── dashboardService.js
+│   ├── controllers/                 http handling only, delegates to services
 │   │   ├── authController.js
 │   │   ├── userController.js
 │   │   ├── transactionController.js
 │   │   └── dashboardController.js
+│   ├── middleware/
+│   │   ├── auth.js                  jwt verification
+│   │   ├── roleCheck.js             role-based access guards
+│   │   └── rateLimiter.js           api + auth rate limits
 │   ├── routes/
 │   │   ├── auth.js
 │   │   ├── users.js
 │   │   ├── transactions.js
 │   │   └── dashboard.js
-│   └── validators/
-│       └── index.js                  all validation rules in one place
-├── .env
+│   ├── validators/
+│   │   └── index.js                 all validation rule sets
+│   └── utils/
+│       ├── response.js              consistent response formatting
+│       └── pagination.js            pagination helpers
+├── .env.example
 ├── package.json
+├── railway.json
 └── README.md
 ```
 
-Routes just wire up which middleware and controller handles a URL. Business logic stays in controllers. Middleware handles auth and role checks before anything else runs. It's a clean split and makes debugging straightforward.
+The separation is intentional. Controllers only deal with the HTTP side — parsing the request and sending back a response. All the actual data work happens in services. This keeps business logic away from Express and makes it straightforward to test or swap either layer independently.
 
 ---
 
-## Getting it running
+## Running locally
 
-You'll need Node 18 or above. Check with `node -v` if unsure.
+Node 18 or above required.
 
 ```bash
-# install everything
 npm install
-
-# create the database and load demo data
 npm run seed
-
-# start in dev mode (auto restarts on changes)
 npm run dev
 ```
 
-Once it starts you'll see:
-
-```
-🚀  Finance Dashboard API running on http://localhost:3000
-```
-
-That's it. The SQLite database file gets created automatically the first time the server starts. Nothing else to configure.
+Server starts at `http://localhost:3000`. The SQLite database is created automatically on first boot, no manual setup needed.
 
 ---
 
-## Demo accounts
+## Roles
 
-These get created when you run the seed command:
+**Admin** — full access, user management, all transactions including delete.
 
-```
-admin@demo.com    →  admin123
-analyst@demo.com  →  analyst123
-viewer@demo.com   →  viewer123
-```
+**Analyst** — can create and update transactions, read everything. No deletes, no user management.
 
----
+**Viewer** — read only. Dashboard and transaction list.
 
-## Roles and what they can do
-
-Three roles in the system:
-
-**Admin** — full access. Can manage users, create/edit/delete transactions, view all dashboard data.
-
-**Analyst** — can create and update transactions, view everything. Can't delete transactions or touch user management.
-
-**Viewer** — read only. Dashboard and transaction list, nothing else.
-
-If a viewer tries to create a transaction or an analyst tries to delete one, they get a 403 back immediately. The role check runs as middleware before the controller even fires.
+Role checks happen in middleware before the controller runs, so a forbidden request never touches business logic.
 
 ---
 
 ## Endpoints
 
-### Auth (no token needed)
+### Auth
 
 ```
-POST  /api/auth/register    create an account, role defaults to viewer
-POST  /api/auth/login       returns a JWT token
-GET   /api/auth/me          your own profile info
+POST /api/auth/register     open — role defaults to viewer
+POST /api/auth/login        returns jwt token
+GET  /api/auth/me           current user profile
 ```
 
-### Users (admin only)
+### Users — admin only
 
 ```
-GET    /api/users                 list users — filter by ?role= or ?status=
-GET    /api/users/:id             single user
-POST   /api/users                 create user
-PUT    /api/users/:id             update name, email, or role
-PATCH  /api/users/:id/status      flip between active and inactive
-DELETE /api/users/:id             remove user
+GET    /api/users                   list, filter by ?role= ?status= ?page= ?limit=
+GET    /api/users/:id               single user
+POST   /api/users                   create
+PUT    /api/users/:id               update name, email, role
+PATCH  /api/users/:id/status        set active or inactive
+DELETE /api/users/:id               remove
 ```
-
-Supports pagination: `?page=1&limit=20`
 
 ### Transactions
 
 ```
-GET    /api/transactions          all roles can read
-GET    /api/transactions/:id      all roles
-POST   /api/transactions          admin and analyst only
-PUT    /api/transactions/:id      admin and analyst only
-DELETE /api/transactions/:id      admin only
+GET    /api/transactions            all roles
+GET    /api/transactions/:id        all roles
+POST   /api/transactions            admin + analyst
+PUT    /api/transactions/:id        admin + analyst
+DELETE /api/transactions/:id        admin only
 ```
 
-Filtering on the list endpoint:
+Filtering on the list:
 ```
 ?type=income
 ?type=expense
 ?category=Rent
-?from=2024-01-01&to=2024-03-31
+?search=bonus          searches category and notes
+?from=2024-03-01&to=2024-03-31
 ?page=2&limit=10
 ```
 
-Deletes are soft — the record stays in the database with `is_deleted = 1`. Financial data shouldn't get permanently wiped, you might need it later for reconciliation.
+Deletes are soft — `is_deleted = 1`, record stays in the database for audit purposes.
 
-### Dashboard (all roles)
+### Dashboard — all roles
 
 ```
-GET /api/dashboard/summary        total income, expenses, net balance
-GET /api/dashboard/categories     per-category totals, filter with ?type=expense
-GET /api/dashboard/trends         month by month for the last 12 months
-GET /api/dashboard/recent         latest transactions, ?limit=10 (max 50)
+GET /api/dashboard/summary          income, expenses, net balance, transaction count
+GET /api/dashboard/categories       totals per category — ?type=expense to filter
+GET /api/dashboard/trends           monthly breakdown for last 12 months
+GET /api/dashboard/recent           latest N records — ?limit=10 (max 50)
 ```
 
 ---
 
-## How auth actually works
+## Auth flow
 
-You hit `/api/auth/login` with email and password. Server finds the user, runs bcrypt compare against the stored hash. If it matches, creates a JWT signed with the secret from `.env` and sends it back.
-
-For every protected route after that you send the token in the header:
+Login returns a signed JWT. Include it on every protected request:
 
 ```
 Authorization: Bearer your-token-here
 ```
 
-The `auth.js` middleware intercepts it, verifies the signature, then pulls the full user record from the database and attaches it to `req.user`. If the token is expired, tampered with, or the account got deactivated, the request stops right there.
+The middleware verifies the signature, then fetches the live user record from the database. So if an account gets deactivated or a role changes, it takes effect immediately on the next request — not when the token expires.
+
+---
+
+## Rate limiting
+
+Two limits in place:
+
+- **General API** — 200 requests per IP per 15 minutes across all routes
+- **Auth routes** — 20 requests per IP per 15 minutes on login and register, to slow down brute-force attempts
 
 ---
 
 ## Validation
 
-Every POST and PUT runs through express-validator before hitting any business logic. A few examples of what gets checked:
+Every POST and PUT validates the body before anything else runs. Query params on the transaction list are also validated. Errors come back as a 400 with an array of what failed, consistent across all endpoints.
 
-- amount must be a positive number
-- type must be exactly `income` or `expense`
-- date must be a proper ISO date like `2024-06-01`
-- email must be valid format
-- password at least 6 characters
-
-Bad input returns a 400 with a list of what failed. The error format is consistent across all endpoints.
+Things that get checked: amount is a positive number, type is exactly `income` or `expense`, date is ISO format, email is valid, password is at least 6 characters, pagination params are integers in range.
 
 ---
 
 ## Environment variables
 
-The `.env` file is already included with defaults that work out of the box:
+Copy `.env.example` to `.env` and fill in:
 
 ```
 PORT=3000
-JWT_SECRET=finance_super_secret_key_2024
+JWT_SECRET=replace_this_with_a_long_random_string
 JWT_EXPIRES_IN=7d
 DB_PATH=./finance.db
 ```
 
-Change `JWT_SECRET` to something stronger if deploying anywhere real.
-
 ---
 
-## Database
+## Assumptions and tradeoffs
 
-Two tables — `users` and `transactions`. Foreign key from transactions to users tracks who created each record. Indexes are on `type`, `category`, `date`, and `is_deleted` since those are the columns queries filter on most.
+**SQLite over Postgres** — zero setup makes it easy to run immediately. Services layer is fully decoupled from the database driver, so swapping is one file.
 
-Schema gets created automatically when the app starts for the first time so no manual SQL setup needed.
+**Soft delete on transactions** — financial records need an audit trail. Hard deleting a transaction would make reconciliation impossible. The `is_deleted` flag keeps it present in the database but invisible to all queries.
 
----
+**Open registration** — kept open so demo accounts are easy to create. In a real product, self-registration for analyst or admin roles would be locked down.
 
-## Assumptions I made
+**JWT over sessions** — stateless, no Redis or session store needed. Re-fetching the user on every request costs one indexed DB lookup but means role or status changes take effect immediately.
 
-- Open registration is allowed for easy testing. In a real product you'd probably want invite-only or restrict who can assign the admin role.
-- Soft delete on transactions because financial records should be kept even after removal. Nothing gets permanently deleted from that table.
-- Role is stored in the JWT payload for convenience, but the middleware still fetches the user from the database on every request. This way if someone's role changes or account gets deactivated mid-session it takes effect on the next request, not when their token expires.
-- SQLite is fine for this scope. Production would want Postgres — that's a one file change in `database.js`, nothing else in the codebase would need to touch.
+**Services layer** — controllers are intentionally thin. They parse the request and call the service. All database interaction, filtering logic, and business rules live in the service layer. This makes the code easier to follow and easier to change.
 
----
+**Auto-seed on boot** — the app checks if the database is empty on startup and seeds it automatically. This means no manual step needed after deploying to a fresh server.
 
-## Quick test to verify everything works
-
-```bash
-# login and grab token
-curl -X POST http://localhost:3000/api/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"admin@demo.com","password":"admin123"}'
-
-# use the token
-curl http://localhost:3000/api/dashboard/summary \
-  -H "Authorization: Bearer paste-token-here"
-```
-
-Or use Thunder Client inside VS Code — way easier than curl for testing a whole API.
